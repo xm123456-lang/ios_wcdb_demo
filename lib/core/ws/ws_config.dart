@@ -12,9 +12,11 @@ class WsConfig {
     this.initialReconnectDelay = const Duration(seconds: 1),
     this.maxReconnectDelay = const Duration(seconds: 30),
     this.maxReconnectAttempts = -1,
+    this.enableNetworkMonitor = true,
+    this.networkDebounce = const Duration(milliseconds: 800),
   });
-
-  /// 是否启用心跳。
+  
+     /// 是否启用心跳。
   final bool enableHeartbeat;
 
   /// 心跳发送间隔。
@@ -40,6 +42,12 @@ class WsConfig {
 
   /// 最大重连次数，-1 表示无限重连。
   final int maxReconnectAttempts;
+
+  /// 是否监听系统网络变化。
+  final bool enableNetworkMonitor;
+
+  /// 恢复有网时的防抖时长；彻底断网会立即响应。
+  final Duration networkDebounce;
 
   static const defaults = WsConfig();
 

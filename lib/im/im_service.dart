@@ -2,11 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:im_demo/config/im_config.dart';
+import 'package:im_demo/core/http/http_client.dart';
 import 'package:im_demo/core/ws/ws_client.dart';
+import 'package:im_demo/core/ws/ws_lifecycle.dart';
 import 'package:im_demo/core/ws/ws_status.dart';
+import 'package:im_demo/im/im_api.dart';
 import 'package:im_demo/im/models/im_message.dart';
 
-/// IM 业务单例，基于 [WsClient] 封装连接、收发消息。
+/// IM 业务单例，HTTP 登录 + WebSocket 通信。
 class ImService extends ChangeNotifier {
   ImService._();
 
@@ -15,13 +19,18 @@ class ImService extends ChangeNotifier {
   final List<ImMessage> _messages = [];
   StreamSubscription<String>? _messageSub;
   StreamSubscription<WsStatus>? _statusSub;
+  StreamSubscription<bool>? _networkSub;
 
   String? _userId;
+  String? _token;
   String? _wsUrl;
+  bool _networkOnline = true;
 
   List<ImMessage> get messages => List.unmodifiable(_messages);
 
   String? get userId => _userId;
+
+  String? get token => _token;
 
   String? get wsUrl => _wsUrl;
 
@@ -29,21 +38,78 @@ class ImService extends ChangeNotifier {
 
   bool get isConnected => WsClient.instance.isConnected;
 
-  /// 连接 IM，成功后发送 join 包（可按你的协议调整）。
+  bool get networkOnline => _networkOnline;
+
+  /// 在 [main] 中调用一次。
+  void init() {
+    ImConfig.bindTokenProvider(() async => _token);
+    HttpClient.instance.init(ImConfig.httpConfig);
+    WsLifecycle.instance.start();
+  }
+
+  /// 有密码：先 HTTP 登录拿 token，再连 WS；无密码：直接连 WS。
+  Future<void> loginAndConnect({
+    required String username,
+    required String wsUrl,
+    String? password,
+  }) {
+    if (password != null && password.isNotEmpty) {
+      return _loginThenConnect(
+        username: username,
+        password: password,
+        fallbackWsUrl: wsUrl,
+      );
+    }
+    return connect(url: wsUrl, userId: username);
+  }
+
+  Future<void> _loginThenConnect({
+    required String username,
+    required String password,
+    required String fallbackWsUrl,
+  }) {
+    final completer = Completer<void>();
+
+    ImApi.instance.login(
+      username: username,
+      password: password,
+      onSuccess: ({required token, wsUrl}) async {
+        _token = token;
+        _userId = username;
+        try {
+          await connect(
+            url: _buildWsUrl(wsUrl ?? fallbackWsUrl),
+            userId: username,
+          );
+          completer.complete();
+        } catch (e, s) {
+          completer.completeError(e, s);
+        }
+      },
+      onFail: (message, {statusCode, raw}) {
+        if (!completer.isCompleted) {
+          completer.completeError(Exception(message));
+        }
+      },
+    );
+
+    return completer.future;
+  }
+
   Future<void> connect({
     required String url,
     required String userId,
   }) async {
-    _wsUrl = url;
+    _wsUrl = _buildWsUrl(url);
     _userId = userId;
 
     await _bindWs();
-    await WsClient.instance.connect(url);
-
+    await WsClient.instance.connect(_wsUrl!, config: ImConfig.wsConfig);
     notifyListeners();
   }
 
   Future<void> disconnect() async {
+    _token = null;
     await WsClient.instance.disconnect();
     notifyListeners();
   }
@@ -65,7 +131,6 @@ class ImService extends ChangeNotifier {
     _appendMessage(message);
   }
 
-  /// 收到原始 ws 文本后的解析入口，可按你的协议改写。
   void handleRawMessage(String raw) {
     try {
       final json = jsonDecode(raw);
@@ -108,15 +173,35 @@ class ImService extends ChangeNotifier {
     notifyListeners();
   }
 
+  String _buildWsUrl(String url) {
+    if (_token == null || _token!.isEmpty) return url;
+    final uri = Uri.parse(url);
+    return uri
+        .replace(
+          queryParameters: {
+            ...uri.queryParameters,
+            'token': _token!,
+          },
+        )
+        .toString();
+  }
+
   Future<void> _bindWs() async {
     await _messageSub?.cancel();
     await _statusSub?.cancel();
+    await _networkSub?.cancel();
+
+    _networkOnline = WsClient.instance.networkOnline;
 
     _messageSub = WsClient.instance.messageStream.listen(handleRawMessage);
     _statusSub = WsClient.instance.statusStream.listen((status) {
       if (status == WsStatus.connected && _userId != null) {
         sendJoin();
       }
+      notifyListeners();
+    });
+    _networkSub = WsClient.instance.networkOnlineStream.listen((online) {
+      _networkOnline = online;
       notifyListeners();
     });
   }
@@ -127,6 +212,7 @@ class ImService extends ChangeNotifier {
       'type': 'join',
       'username': _userId,
       'from': _userId,
+      if (_token != null) 'token': _token,
     });
   }
 
@@ -139,6 +225,7 @@ class ImService extends ChangeNotifier {
   void dispose() {
     _messageSub?.cancel();
     _statusSub?.cancel();
+    _networkSub?.cancel();
     super.dispose();
   }
 }

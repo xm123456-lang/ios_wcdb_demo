@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:im_demo/im/im_service.dart';
+import 'package:im_demo/ui/connect_page.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  ImService.instance.init();
   runApp(const ImApp());
 }
 
@@ -15,11 +19,7 @@ class ImApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const Scaffold(
-        body: Center(
-          child: Text('IM Demo'),
-        ),
-      ),
+      home: const ConnectPage(),
     );
   }
 }

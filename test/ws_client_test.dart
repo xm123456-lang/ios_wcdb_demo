@@ -1,7 +1,28 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:im_demo/core/network/network_utils.dart';
 import 'package:im_demo/core/ws/ws_config.dart';
 
 void main() {
+  group('networkIsOnline', () {
+    test('returns false when no connectivity', () {
+      expect(networkIsOnline([ConnectivityResult.none]), isFalse);
+    });
+
+    test('returns true when any interface is available', () {
+      expect(networkIsOnline([ConnectivityResult.wifi]), isTrue);
+      expect(
+        networkIsOnline([ConnectivityResult.none, ConnectivityResult.mobile]),
+        isTrue,
+      );
+    });
+
+    test('none only means offline', () {
+      expect(networkIsOnline([ConnectivityResult.none]), isFalse);
+      expect(networkIsOnline([]), isFalse);
+    });
+  });
+
   group('WsConfig', () {
     test('detects heartbeat response', () {
       const config = WsConfig();

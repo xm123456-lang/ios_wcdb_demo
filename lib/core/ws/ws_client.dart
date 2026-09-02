@@ -3,10 +3,11 @@ import 'dart:convert';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../network/network_monitor.dart';
 import 'ws_config.dart';
 import 'ws_status.dart';
 
-/// WebSocket 单例，支持心跳保活与自动重连。
+/// WebSocket 单例，支持心跳保活、网络抖动感知与自动重连。
 ///
 /// ```dart
 /// await WsClient.instance.connect('wss://your-server/ws');
@@ -20,10 +21,12 @@ class WsClient {
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
+  StreamSubscription<bool>? _networkSub;
 
   final _messageController = StreamController<String>.broadcast();
   final _statusController = StreamController<WsStatus>.broadcast();
   final _reconnectedController = StreamController<void>.broadcast();
+  final _networkController = StreamController<bool>.broadcast();
 
   WsStatus _status = WsStatus.disconnected;
   WsConfig _config = WsConfig.defaults;
@@ -32,6 +35,7 @@ class WsClient {
   Iterable<String>? _protocols;
 
   bool _manualDisconnect = false;
+  bool _networkOnline = true;
   int _reconnectAttempt = 0;
 
   Timer? _reconnectTimer;
@@ -42,6 +46,11 @@ class WsClient {
   Stream<String> get messageStream => _messageController.stream;
 
   Stream<WsStatus> get statusStream => _statusController.stream;
+
+  /// 网络是否可用（防抖后）。
+  Stream<bool> get networkOnlineStream => _networkController.stream;
+
+  bool get networkOnline => _networkOnline;
 
   /// 重连成功时触发（不含首次连接）。
   Stream<void> get reconnectedStream => _reconnectedController.stream;
@@ -68,6 +77,7 @@ class WsClient {
     _protocols = protocols;
 
     _cancelReconnectTimer();
+    _startNetworkMonitor();
     await _openConnection(isReconnect: false);
   }
 
@@ -84,6 +94,7 @@ class WsClient {
     _manualDisconnect = true;
     _cancelReconnectTimer();
     _stopHeartbeat();
+    _stopNetworkMonitor();
     await _closeChannel();
     _url = null;
     _protocols = null;
@@ -91,9 +102,28 @@ class WsClient {
     _setStatus(WsStatus.disconnected);
   }
 
+  /// App 回到前台时调用，断线则重连，已连接则立即发心跳检测。
+  void onAppResumed() {
+    if (_manualDisconnect || _url == null) return;
+
+    if (!isConnected) {
+      _reconnectAttempt = 0;
+      _cancelReconnectTimer();
+      unawaited(_openConnection(isReconnect: true));
+      return;
+    }
+
+    _sendHeartbeat();
+  }
+
   Future<void> _openConnection({required bool isReconnect}) async {
     final url = _url;
     if (url == null || _manualDisconnect) return;
+
+    if (_config.enableNetworkMonitor && !_networkOnline) {
+      _setStatus(WsStatus.waitingNetwork);
+      return;
+    }
 
     _setStatus(isReconnect ? WsStatus.reconnecting : WsStatus.connecting);
     _stopHeartbeat();
@@ -179,6 +209,12 @@ class WsClient {
       return;
     }
 
+    if (_config.enableNetworkMonitor && !_networkOnline) {
+      _cancelReconnectTimer();
+      _setStatus(WsStatus.waitingNetwork);
+      return;
+    }
+
     _cancelReconnectTimer();
     _setStatus(WsStatus.reconnecting);
 
@@ -188,6 +224,53 @@ class WsClient {
       _reconnectAttempt++;
       unawaited(_openConnection(isReconnect: true));
     });
+  }
+
+  void _onNetworkChanged(bool online) {
+    _networkOnline = online;
+    if (!_networkController.isClosed) {
+      _networkController.add(online);
+    }
+
+    if (_manualDisconnect || _url == null) return;
+
+    if (!online) {
+      _cancelReconnectTimer();
+      _stopHeartbeat();
+      unawaited(_closeChannel());
+      _setStatus(WsStatus.waitingNetwork);
+      return;
+    }
+
+    // 网络恢复：重置退避，立即尝试重连。
+    if (!isConnected) {
+      _reconnectAttempt = 0;
+      _cancelReconnectTimer();
+      unawaited(_openConnection(isReconnect: true));
+    }
+  }
+
+  void _startNetworkMonitor() {
+    if (!_config.enableNetworkMonitor) return;
+
+    final monitor = NetworkMonitor.instance;
+    unawaited(
+      monitor.start(debounce: _config.networkDebounce).then((_) {
+        _networkOnline = monitor.isOnline;
+        if (!_networkController.isClosed) {
+          _networkController.add(_networkOnline);
+        }
+      }),
+    );
+
+    _networkSub?.cancel();
+    _networkSub = monitor.onlineStream.listen(_onNetworkChanged);
+  }
+
+  void _stopNetworkMonitor() {
+    _networkSub?.cancel();
+    _networkSub = null;
+    NetworkMonitor.instance.stop();
   }
 
   Duration _nextReconnectDelay() {

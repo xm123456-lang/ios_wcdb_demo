@@ -4,9 +4,9 @@ import 'package:im_demo/core/ws/ws_status.dart';
 import 'package:im_demo/main.dart';
 
 void main() {
-  testWidgets('App smoke test', (WidgetTester tester) async {
+  testWidgets('App starts at connect page', (WidgetTester tester) async {
     await tester.pumpWidget(const ImApp());
-    expect(find.text('IM Demo'), findsOneWidget);
+    expect(find.text('连接 IM'), findsOneWidget);
   });
 
   test('WsClient is singleton', () {
