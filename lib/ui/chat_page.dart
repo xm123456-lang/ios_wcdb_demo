@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:im_demo/core/ws/ws_status.dart';
 import 'package:im_demo/im/im_service.dart';
 import 'package:im_demo/im/models/im_message.dart';
-import 'package:im_demo/ui/connect_page.dart';
+import 'package:im_demo/ui/login_page.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -54,7 +54,7 @@ class _ChatPageState extends State<ChatPage> {
     await _im.disconnect();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const ConnectPage()),
+      MaterialPageRoute(builder: (_) => const LoginPage()),
     );
   }
 

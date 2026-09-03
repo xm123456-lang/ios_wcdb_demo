@@ -1,29 +1,35 @@
 import 'package:dio/dio.dart';
 
 import 'http_config.dart';
+import 'http_result.dart';
 
-typedef HttpSuccess<T> = void Function(T data);
-typedef HttpFail = void Function(String message, {int? statusCode, dynamic raw});
-
-/// 基于 Dio 的 HTTP 单例，通过回调处理成功/失败。
+/// 基于 Dio 的 HTTP 单例，方法返回 [HttpResult]。
 ///
 /// ```dart
 /// HttpClient.instance.init(HttpConfig(baseUrl: 'https://api.example.com'));
+/// HttpClient.instance.setToken('xxx');
 ///
-/// HttpClient.instance.get<Map<String, dynamic>>(
+/// final result = await HttpClient.instance.get<Map<String, dynamic>>(
 ///   '/user/info',
 ///   parser: (json) => Map<String, dynamic>.from(json as Map),
-///   onSuccess: (data) => print(data),
-///   onFail: (msg, {statusCode, raw}) => print(msg),
 /// );
+/// if (result.success) {
+///   print(result.data);
+/// }
 /// ```
 class HttpClient {
   HttpClient._();
 
   static final HttpClient instance = HttpClient._();
 
+  static const Map<String, String> _defaultHeaders = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+
   Dio? _dio;
   HttpConfig? _config;
+  String? _token;
 
   void init(HttpConfig config) {
     _config = config;
@@ -32,117 +38,98 @@ class HttpClient {
         baseUrl: config.baseUrl,
         connectTimeout: config.connectTimeout,
         receiveTimeout: config.receiveTimeout,
-        headers: Map<String, String>.from(config.headers),
+        headers: Map<String, String>.from(_defaultHeaders),
       ),
     );
   }
 
-  void get<T>(
+  /// 手动设置 Token，后续请求自动带 `Authorization: Bearer <token>`。
+  void setToken(String? token) {
+    _token = token;
+  }
+
+  void clearToken() => setToken(null);
+
+  String? get token => _token;
+
+  Future<HttpResult<T>> get<T>(
     String path, {
     Map<String, dynamic>? query,
-    Map<String, dynamic>? headers,
     T Function(dynamic json)? parser,
-    HttpSuccess<T>? onSuccess,
-    HttpFail? onFail,
   }) {
-    _request<T>(
+    return _request<T>(
       path: path,
       method: 'GET',
       query: query,
-      headers: headers,
       parser: parser,
-      onSuccess: onSuccess,
-      onFail: onFail,
     );
   }
 
-  void post<T>(
+  Future<HttpResult<T>> post<T>(
     String path, {
     dynamic data,
     Map<String, dynamic>? query,
-    Map<String, dynamic>? headers,
     T Function(dynamic json)? parser,
-    HttpSuccess<T>? onSuccess,
-    HttpFail? onFail,
   }) {
-    _request<T>(
+    return _request<T>(
       path: path,
       method: 'POST',
       data: data,
       query: query,
-      headers: headers,
       parser: parser,
-      onSuccess: onSuccess,
-      onFail: onFail,
     );
   }
 
-  void put<T>(
+  Future<HttpResult<T>> put<T>(
     String path, {
     dynamic data,
     Map<String, dynamic>? query,
-    Map<String, dynamic>? headers,
     T Function(dynamic json)? parser,
-    HttpSuccess<T>? onSuccess,
-    HttpFail? onFail,
   }) {
-    _request<T>(
+    return _request<T>(
       path: path,
       method: 'PUT',
       data: data,
       query: query,
-      headers: headers,
       parser: parser,
-      onSuccess: onSuccess,
-      onFail: onFail,
     );
   }
 
-  void delete<T>(
+  Future<HttpResult<T>> delete<T>(
     String path, {
     dynamic data,
     Map<String, dynamic>? query,
-    Map<String, dynamic>? headers,
     T Function(dynamic json)? parser,
-    HttpSuccess<T>? onSuccess,
-    HttpFail? onFail,
   }) {
-    _request<T>(
+    return _request<T>(
       path: path,
       method: 'DELETE',
       data: data,
       query: query,
-      headers: headers,
       parser: parser,
-      onSuccess: onSuccess,
-      onFail: onFail,
     );
   }
 
-  Future<void> _request<T>({
+  Future<HttpResult<T>> _request<T>({
     required String path,
     required String method,
     dynamic data,
     Map<String, dynamic>? query,
-    Map<String, dynamic>? headers,
     T Function(dynamic json)? parser,
-    HttpSuccess<T>? onSuccess,
-    HttpFail? onFail,
   }) async {
     final dio = _dio;
     if (dio == null || _config == null) {
-      onFail?.call('HttpClient 未初始化，请先调用 init()', statusCode: null, raw: null);
-      return;
+      return HttpResult.fail('HttpClient 未初始化，请先调用 init()');
     }
 
-    final mergedHeaders = <String, dynamic>{
+    final headers = <String, dynamic>{
+      ..._defaultHeaders,
       ...dio.options.headers,
-      ...?headers,
     };
 
-    final token = await _config!.tokenProvider?.call();
+    final token = _token;
     if (token != null && token.isNotEmpty) {
-      mergedHeaders['Authorization'] = 'Bearer $token';
+      headers['Authorization'] = 'Bearer $token';
     }
 
     try {
@@ -150,25 +137,24 @@ class HttpClient {
         path,
         data: data,
         queryParameters: query,
-        options: Options(method: method, headers: mergedHeaders),
+        options: Options(method: method, headers: headers),
       );
 
       final body = response.data;
-      if (onSuccess == null) return;
-
-      if (parser != null) {
-        onSuccess(parser(body));
-      } else {
-        onSuccess(body as T);
-      }
+      final parsed = parser != null ? parser(body) : body as T;
+      return HttpResult.ok(
+        parsed,
+        statusCode: response.statusCode,
+        raw: body,
+      );
     } on DioException catch (e) {
-      onFail?.call(
+      return HttpResult.fail(
         _resolveErrorMessage(e),
         statusCode: e.response?.statusCode,
         raw: e.response?.data,
       );
     } catch (e) {
-      onFail?.call(e.toString(), statusCode: null, raw: e);
+      return HttpResult.fail(e.toString(), raw: e);
     }
   }
 

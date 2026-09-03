@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:im_demo/config/im_config.dart';
+import 'package:im_demo/config/ws_app_config.dart';
 import 'package:im_demo/core/http/http_client.dart';
 import 'package:im_demo/core/ws/ws_client.dart';
 import 'package:im_demo/core/ws/ws_lifecycle.dart';
@@ -42,7 +43,6 @@ class ImService extends ChangeNotifier {
 
   /// 在 [main] 中调用一次。
   void init() {
-    ImConfig.bindTokenProvider(() async => _token);
     HttpClient.instance.init(ImConfig.httpConfig);
     WsLifecycle.instance.start();
   }
@@ -67,33 +67,23 @@ class ImService extends ChangeNotifier {
     required String username,
     required String password,
     required String fallbackWsUrl,
-  }) {
-    final completer = Completer<void>();
-
-    ImApi.instance.login(
+  }) async {
+    final result = await ImApi.instance.login(
       username: username,
       password: password,
-      onSuccess: ({required token, wsUrl}) async {
-        _token = token;
-        _userId = username;
-        try {
-          await connect(
-            url: _buildWsUrl(wsUrl ?? fallbackWsUrl),
-            userId: username,
-          );
-          completer.complete();
-        } catch (e, s) {
-          completer.completeError(e, s);
-        }
-      },
-      onFail: (message, {statusCode, raw}) {
-        if (!completer.isCompleted) {
-          completer.completeError(Exception(message));
-        }
-      },
     );
+    if (result.isFail || result.data == null) {
+      throw Exception(result.message ?? '登录失败');
+    }
 
-    return completer.future;
+    final login = result.data!;
+    _token = login.token;
+    _userId = username;
+    HttpClient.instance.setToken(login.token);
+    await connect(
+      url: _buildWsUrl(login.wsUrl ?? fallbackWsUrl),
+      userId: username,
+    );
   }
 
   Future<void> connect({
@@ -104,12 +94,13 @@ class ImService extends ChangeNotifier {
     _userId = userId;
 
     await _bindWs();
-    await WsClient.instance.connect(_wsUrl!, config: ImConfig.wsConfig);
+    await WsClient.instance.connect(_wsUrl!, config: WsAppConfig.config);
     notifyListeners();
   }
 
   Future<void> disconnect() async {
     _token = null;
+    HttpClient.instance.clearToken();
     await WsClient.instance.disconnect();
     notifyListeners();
   }

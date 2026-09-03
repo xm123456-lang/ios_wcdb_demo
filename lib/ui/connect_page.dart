@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:im_demo/config/im_config.dart';
+import 'package:im_demo/config/ws_app_config.dart';
 import 'package:im_demo/im/im_service.dart';
 import 'package:im_demo/ui/chat_page.dart';
 
@@ -11,7 +12,7 @@ class ConnectPage extends StatefulWidget {
 }
 
 class _ConnectPageState extends State<ConnectPage> {
-  final _urlController = TextEditingController(text: ImConfig.wsUrl);
+  final _urlController = TextEditingController(text: WsAppConfig.wsUrl);
   final _userController = TextEditingController();
   final _passwordController = TextEditingController();
   final _im = ImService.instance;
