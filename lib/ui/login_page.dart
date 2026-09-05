@@ -1,9 +1,12 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:im_demo/config/ws_app_config.dart';
+import 'package:get/instance_manager.dart';
+import 'package:im_demo/core/http/http_client.dart';
 import 'package:im_demo/im/im_service.dart';
-import 'package:im_demo/ui/chat_page.dart';
+import 'package:im_demo/im/models/im_adapter.dart';
+import 'package:im_demo/ui/chat_home_page.dart';
+import 'package:get/get.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -33,18 +36,9 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-    _termsRecognizer = TapGestureRecognizer()
-      ..onTap = () {
-        print("12");
-      };
-    _privacyRecognizer = TapGestureRecognizer()
-      ..onTap = () {
-        print("122");
-      };
-    _registerRecognizer = TapGestureRecognizer()
-      ..onTap = () {
-        print("1222");
-      };
+    _termsRecognizer = TapGestureRecognizer()..onTap = () {};
+    _privacyRecognizer = TapGestureRecognizer()..onTap = () {};
+    _registerRecognizer = TapGestureRecognizer()..onTap = () {};
   }
 
   @override
@@ -71,21 +65,19 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
 
-    try {
-      await _im.loginAndConnect(
-        username: '$_countryCode$phone',
-        wsUrl: WsAppConfig.wsUrl,
-        password: password,
-      );
-      if (!mounted) return;
-      Navigator.of(
-        context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => const ChatPage()));
-    } catch (e) {
-      setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+    final res = await HttpClient.instance.post(
+      "/app/v1/users/login",
+      query: {"mobile": "+62 822222222", "password": "123456"},
+    );
+    final token = res.data['data']["token"];
+    HttpClient.instance.setToken(token);
+
+    setState(() {
+      _loading = false;
+      _error = null;
+    });
+    ImAdapter.connectWS(token);
+    Get.to(ChatHomePage());
   }
 
   Future<void> _pickCountryCode() async {
@@ -464,3 +456,5 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
+
+class TChatHomePage {}

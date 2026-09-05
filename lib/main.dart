@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:get/route_manager.dart';
 import 'package:im_demo/core/http/http_client.dart';
 import 'package:im_demo/im/im_service.dart';
 import 'package:im_demo/ui/login_page.dart';
@@ -22,7 +23,7 @@ class ImApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return GetMaterialApp(
       title: 'IM Demo',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),

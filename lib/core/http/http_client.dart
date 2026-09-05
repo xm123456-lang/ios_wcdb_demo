@@ -1,7 +1,14 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import 'http_config.dart';
 import 'http_result.dart';
+
+void prettyPrint(dynamic obj) {
+  final encoder = JsonEncoder.withIndent("  ");
+  print(encoder.convert(obj));
+}
 
 /// 基于 Dio 的 HTTP 单例，方法返回 [HttpResult]。
 ///
@@ -23,8 +30,14 @@ class HttpClient {
   static final HttpClient instance = HttpClient._();
 
   static const Map<String, String> _defaultHeaders = {
-    'Content-Type': 'application/json',
     'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    'Client-type': '5',
+    'App-version': '1.0.3',
+    'App-channel': 'official',
+    'Lang': 'en',
+    'timezone': 'UTC+8',
+    'Siteid': '1',
   };
 
   Dio? _dio;
@@ -57,12 +70,7 @@ class HttpClient {
     Map<String, dynamic>? query,
     T Function(dynamic json)? parser,
   }) {
-    return _request<T>(
-      path: path,
-      method: 'GET',
-      query: query,
-      parser: parser,
-    );
+    return _request<T>(path: path, method: 'GET', query: query, parser: parser);
   }
 
   Future<HttpResult<T>> post<T>(
@@ -125,6 +133,7 @@ class HttpClient {
     final headers = <String, dynamic>{
       ..._defaultHeaders,
       ...dio.options.headers,
+      'Referer': _buildReferer(path),
     };
 
     final token = _token;
@@ -142,11 +151,7 @@ class HttpClient {
 
       final body = response.data;
       final parsed = parser != null ? parser(body) : body as T;
-      return HttpResult.ok(
-        parsed,
-        statusCode: response.statusCode,
-        raw: body,
-      );
+      return HttpResult.ok(parsed, statusCode: response.statusCode, raw: body);
     } on DioException catch (e) {
       return HttpResult.fail(
         _resolveErrorMessage(e),
@@ -156,6 +161,12 @@ class HttpClient {
     } catch (e) {
       return HttpResult.fail(e.toString(), raw: e);
     }
+  }
+
+  String _buildReferer(String path) {
+    final base = _config!.baseUrl.replaceAll(RegExp(r'/+$'), '');
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    return '$base$normalizedPath';
   }
 
   String _resolveErrorMessage(DioException e) {
